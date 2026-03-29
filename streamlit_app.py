@@ -16,29 +16,33 @@ st.set_page_config(page_title="Crime Predict AI", layout="wide")
 def load_data():
     data = pd.read_csv("crime_data.csv")
 
-    # ✅ Convert to numeric (FIX ERROR)
     data["Latitude"] = pd.to_numeric(data["Latitude"], errors="coerce")
     data["Longitude"] = pd.to_numeric(data["Longitude"], errors="coerce")
 
-    # ✅ Drop invalid rows
     data = data.dropna(subset=["Latitude", "Longitude"])
 
     return data
 
 data = load_data()
 
-# ---------- SAFE MAP CENTER ----------
-if not data.empty:
-    center_lat = data["Latitude"].mean()
-    center_lon = data["Longitude"].mean()
-else:
-    center_lat, center_lon = 20.5937, 78.9629  # fallback (India)
+# ---------- SAFE CENTER FUNCTION ----------
+def get_safe_center(data):
+    try:
+        lat = data["Latitude"].mean()
+        lon = data["Longitude"].mean()
+
+        if pd.isna(lat) or pd.isna(lon):
+            return [20.5937, 78.9629]
+
+        return [float(lat), float(lon)]
+    except:
+        return [20.5937, 78.9629]
 
 # ---------- SESSION STATE ----------
 if "map_state" not in st.session_state:
     st.session_state.map_state = {
         "zoom": 12,
-        "center": [center_lat, center_lon]
+        "center": get_safe_center(data)
     }
 
 # ---------- UI ----------
@@ -104,8 +108,6 @@ else:
         col3.metric("Crime Types", data["Crime_Type"].nunique())
         col4.metric("Most Common", data["Crime_Type"].mode()[0] if not data.empty else "N/A")
 
-        st.subheader("Crime Distribution")
-
         fig = px.histogram(data, x="Crime_Type", color="Crime_Type")
         st.plotly_chart(fig, use_container_width=True)
 
@@ -115,43 +117,38 @@ else:
         left,center,right = st.columns([1,2,1])
 
         with left:
-            st.subheader("📊 Stats")
             st.bar_chart(data["Area"].value_counts())
 
         with center:
             st.subheader("🗺 Live Map")
 
-            m = folium.Map(
-                location=st.session_state.map_state["center"],
-                zoom_start=st.session_state.map_state["zoom"]
-            )
+            center_map = st.session_state.map_state.get("center", [20.5937, 78.9629])
+            if not isinstance(center_map, list) or len(center_map) != 2:
+                center_map = [20.5937, 78.9629]
+
+            m = folium.Map(location=center_map, zoom_start=st.session_state.map_state.get("zoom", 12))
 
             heat_data = data[["Latitude","Longitude"]].dropna()
 
             if not heat_data.empty:
-                HeatMap(
-                    heat_data.values.tolist(),
-                    radius=15,
-                    blur=20,
-                    min_opacity=0.3
-                ).add_to(m)
+                HeatMap(heat_data.values.tolist(), radius=15, blur=20).add_to(m)
 
-            map_data = st_folium(
-                m,
-                width=700,
-                height=500,
-                returned_objects=["center","zoom"]
-            )
+            map_data = st_folium(m, width=700, height=500, returned_objects=["center","zoom"])
 
             if map_data:
-                st.session_state.map_state["zoom"] = map_data["zoom"]
-                st.session_state.map_state["center"] = map_data["center"]
+                if map_data.get("zoom"):
+                    st.session_state.map_state["zoom"] = map_data["zoom"]
+
+                if map_data.get("center"):
+                    c = map_data["center"]
+                    if isinstance(c, list) and len(c) == 2:
+                        try:
+                            st.session_state.map_state["center"] = [float(c[0]), float(c[1])]
+                        except:
+                            pass
 
         with right:
-            st.subheader("🚨 Alerts")
-
             counts = data["Area"].value_counts()
-
             for area,count in counts.items():
                 if count > 3:
                     st.error(f"High Risk: {area}")
@@ -161,22 +158,17 @@ else:
 
         st.title("Crime Heatmap")
 
-        m = folium.Map(
-            location=st.session_state.map_state["center"],
-            zoom_start=st.session_state.map_state["zoom"]
-        )
+        center_map = st.session_state.map_state.get("center", [20.5937, 78.9629])
+        if not isinstance(center_map, list) or len(center_map) != 2:
+            center_map = [20.5937, 78.9629]
+
+        m = folium.Map(location=center_map, zoom_start=st.session_state.map_state.get("zoom", 12))
 
         heat_data = data[["Latitude","Longitude"]].dropna()
 
         if not heat_data.empty:
-            HeatMap(
-                heat_data.values.tolist(),
-                radius=15,
-                blur=20,
-                min_opacity=0.3
-            ).add_to(m)
+            HeatMap(heat_data.values.tolist(), radius=15, blur=20).add_to(m)
 
-        # ✅ FIXED KMEANS
         coords = data[["Latitude","Longitude"]].dropna().copy()
 
         if len(coords) >= 3:
@@ -193,25 +185,26 @@ else:
                     fill=True
                 ).add_to(m)
 
-        map_data = st_folium(
-            m,
-            width=1000,
-            height=500,
-            returned_objects=["center","zoom"]
-        )
+        map_data = st_folium(m, width=1000, height=500, returned_objects=["center","zoom"])
 
         if map_data:
-            st.session_state.map_state["zoom"] = map_data["zoom"]
-            st.session_state.map_state["center"] = map_data["center"]
+            if map_data.get("zoom"):
+                st.session_state.map_state["zoom"] = map_data["zoom"]
+
+            if map_data.get("center"):
+                c = map_data["center"]
+                if isinstance(c, list) and len(c) == 2:
+                    try:
+                        st.session_state.map_state["center"] = [float(c[0]), float(c[1])]
+                    except:
+                        pass
 
     # ---------- STATISTICS ----------
     if selected == "Statistics":
 
         st.title("Crime Analysis")
 
-        area_counts = data["Area"].value_counts()
-
-        fig = px.bar(x=area_counts.index, y=area_counts.values)
+        fig = px.bar(data["Area"].value_counts())
         st.plotly_chart(fig)
 
         if "Date" in data.columns:
