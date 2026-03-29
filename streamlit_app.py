@@ -11,18 +11,14 @@ import time
 
 st.set_page_config(page_title="Crime Predict AI", layout="wide")
 
-# ---------- FIX DATA TYPES ----------
+# ---------- LOAD DATA ----------
 
 data = pd.read_csv("crime_data.csv")
-
-# Clean column names
 data.columns = data.columns.str.strip()
 
-# Convert to numeric (VERY IMPORTANT FIX)
+# FIX numeric issue
 data["Latitude"] = pd.to_numeric(data["Latitude"], errors='coerce')
 data["Longitude"] = pd.to_numeric(data["Longitude"], errors='coerce')
-
-# Drop invalid rows
 data = data.dropna(subset=["Latitude", "Longitude"])
 
 # ---------- UI ----------
@@ -35,12 +31,6 @@ color:white;
 }
 section[data-testid="stSidebar"] {
 background:#020617;
-}
-div[data-testid="metric-container"] {
-background-color:#1e293b;
-padding:15px;
-border-radius:10px;
-border:1px solid #334155;
 }
 h1,h2,h3 {
 color:#38bdf8;
@@ -72,8 +62,8 @@ else:
     with st.sidebar:
         selected=option_menu(
             "Crime Predict AI",
-            ["Dashboard","Command Center","Map","Statistics","AI Prediction","Report Crime"],
-            icons=["speedometer","activity","map","bar-chart","cpu","plus-circle"],
+            ["Dashboard","Map","Statistics","AI Prediction","Report Crime"],
+            icons=["speedometer","map","bar-chart","cpu","plus-circle"],
             default_index=0
         )
 
@@ -93,82 +83,41 @@ else:
         fig=px.histogram(data,x="Crime_Type",color="Crime_Type")
         st.plotly_chart(fig,use_container_width=True)
 
-# ---------- COMMAND CENTER (FIXED MAP) ----------
-
-    if selected=="Command Center":
-
-        left,center,right=st.columns([1,2,1])
-
-        with left:
-            st.subheader("📊 Stats")
-            st.bar_chart(data["Area"].value_counts())
-
-        with center:
-            st.subheader("🗺 Live Map")
-
-            # FIX: Store map in session to prevent flicker
-            if "map1" not in st.session_state:
-
-                m = folium.Map(
-                    location=[data["Latitude"].mean(),data["Longitude"].mean()],
-                    zoom_start=12
-                )
-
-                HeatMap(data[["Latitude","Longitude"]].values.tolist()).add_to(m)
-
-                st.session_state.map1 = m
-
-            st_folium(st.session_state.map1, width=700, height=500, key="map1")
-
-        with right:
-            st.subheader("🚨 Alerts")
-
-            counts=data["Area"].value_counts()
-
-            for area,count in counts.items():
-                if count>3:
-                    st.error(f"High Risk: {area}")
-
-# ---------- MAP (FIXED SMOOTH ZOOM) ----------
+# ---------- MAP ----------
 
     if selected=="Map":
 
-        st.title("Crime Heatmap")
+        st.title("🗺 Crime Heatmap")
 
-        # FIX: persistent map
-        if "map2" not in st.session_state:
+        m = folium.Map(
+            location=[data["Latitude"].mean(), data["Longitude"].mean()],
+            zoom_start=12
+        )
 
-            m = folium.Map(
-                location=[data["Latitude"].mean(),data["Longitude"].mean()],
-                zoom_start=12
-            )
+        HeatMap(data[["Latitude","Longitude"]].values.tolist()).add_to(m)
 
-            HeatMap(data[["Latitude","Longitude"]].values.tolist()).add_to(m)
+        # clustering
+        coords=data[["Latitude","Longitude"]]
+        kmeans=KMeans(n_clusters=3, random_state=0)
+        data["Cluster"]=kmeans.fit_predict(coords)
 
-            coords=data[["Latitude","Longitude"]]
+        colors=["red","orange","green"]
 
-            kmeans=KMeans(n_clusters=3)
-            data["Cluster"]=kmeans.fit_predict(coords)
+        for i in range(len(data)):
+            folium.CircleMarker(
+                location=[data.iloc[i]["Latitude"],data.iloc[i]["Longitude"]],
+                radius=6,
+                color=colors[data.iloc[i]["Cluster"]],
+                fill=True
+            ).add_to(m)
 
-            colors=["red","orange","green"]
-
-            for i in range(len(data)):
-                folium.CircleMarker(
-                    location=[data.iloc[i]["Latitude"],data.iloc[i]["Longitude"]],
-                    radius=8,
-                    color=colors[data.iloc[i]["Cluster"]],
-                    fill=True
-                ).add_to(m)
-
-            st.session_state.map2 = m
-
-        st_folium(st.session_state.map2, width=1000, height=500, key="map2")
+        st_folium(m, width=1000, height=500, key="map")
 
 # ---------- STATISTICS ----------
 
     if selected=="Statistics":
 
-        st.title("Crime Analysis")
+        st.title("📊 Crime Analysis")
 
         area_counts=data["Area"].value_counts()
 
@@ -176,7 +125,6 @@ else:
         st.plotly_chart(fig)
 
         data["Date"]=pd.to_datetime(data["Date"])
-
         trend=data.groupby(data["Date"].dt.month).size()
 
         st.line_chart(trend)
@@ -185,10 +133,10 @@ else:
 
     if selected=="AI Prediction":
 
-        st.title("AI Crime Risk Prediction")
+        st.title("🤖 AI Crime Risk Prediction")
 
         with st.spinner("Running AI Model..."):
-            time.sleep(2)
+            time.sleep(1)
 
         area_counts=data["Area"].value_counts()
         total=len(data)
@@ -212,10 +160,9 @@ else:
 
     if selected=="Report Crime":
 
-        st.title("Report Crime")
+        st.title("➕ Report Crime")
 
         crime=st.selectbox("Crime Type",["Theft","Robbery","Assault"])
-
         lat=st.number_input("Latitude")
         lon=st.number_input("Longitude")
         area=st.text_input("Area")
