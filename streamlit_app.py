@@ -11,8 +11,21 @@ import time
 
 st.set_page_config(page_title="Crime Predict AI", layout="wide")
 
-# ---------- PROFESSIONAL UI ----------
+# ---------- CACHE DATA ----------
+@st.cache_data
+def load_data():
+    return pd.read_csv("crime_data.csv")
 
+data = load_data()
+
+# ---------- SESSION STATE FOR MAP ----------
+if "map_state" not in st.session_state:
+    st.session_state.map_state = {
+        "zoom": 12,
+        "center": [data["Latitude"].mean(), data["Longitude"].mean()]
+    }
+
+# ---------- PROFESSIONAL UI ----------
 st.markdown("""
 <style>
 .stApp {
@@ -35,7 +48,6 @@ color:#38bdf8;
 """, unsafe_allow_html=True)
 
 # ---------- LOGIN ----------
-
 if "login" not in st.session_state:
     st.session_state.login=False
 
@@ -55,6 +67,7 @@ if not st.session_state.login:
 
 else:
 
+    # ---------- SIDEBAR ----------
     with st.sidebar:
         selected=option_menu(
             "Crime Predict AI",
@@ -63,10 +76,7 @@ else:
             default_index=0
         )
 
-    data=pd.read_csv("crime_data.csv")
-
 # ---------- DASHBOARD ----------
-
     if selected=="Dashboard":
 
         st.markdown("# 🚔 SMART CITY CRIME COMMAND CENTER")
@@ -84,7 +94,6 @@ else:
         st.plotly_chart(fig,use_container_width=True)
 
 # ---------- COMMAND CENTER ----------
-
     if selected=="Command Center":
 
         left,center,right=st.columns([1,2,1])
@@ -96,14 +105,31 @@ else:
         with center:
             st.subheader("🗺 Live Map")
 
-            m=folium.Map(
-                location=[data["Latitude"].mean(),data["Longitude"].mean()],
-                zoom_start=12
+            m = folium.Map(
+                location=st.session_state.map_state["center"],
+                zoom_start=st.session_state.map_state["zoom"],
+                control_scale=True
             )
 
-            HeatMap(data[["Latitude","Longitude"]].values.tolist()).add_to(m)
+            heat_data = data[["Latitude","Longitude"]].dropna().values.tolist()
 
-            st_folium(m,width=700,height=500)
+            HeatMap(
+                heat_data,
+                radius=15,
+                blur=20,
+                min_opacity=0.3
+            ).add_to(m)
+
+            map_data = st_folium(
+                m,
+                width=700,
+                height=500,
+                returned_objects=["center","zoom"]
+            )
+
+            if map_data:
+                st.session_state.map_state["zoom"]=map_data["zoom"]
+                st.session_state.map_state["center"]=map_data["center"]
 
         with right:
             st.subheader("🚨 Alerts")
@@ -115,37 +141,52 @@ else:
                     st.error(f"High Risk: {area}")
 
 # ---------- MAP ----------
-
     if selected=="Map":
 
         st.title("Crime Heatmap")
 
-        m=folium.Map(
-            location=[data["Latitude"].mean(),data["Longitude"].mean()],
-            zoom_start=12
+        m = folium.Map(
+            location=st.session_state.map_state["center"],
+            zoom_start=st.session_state.map_state["zoom"]
         )
 
-        HeatMap(data[["Latitude","Longitude"]].values.tolist()).add_to(m)
+        heat_data = data[["Latitude","Longitude"]].dropna().values.tolist()
 
-        coords=data[["Latitude","Longitude"]]
+        HeatMap(
+            heat_data,
+            radius=15,
+            blur=20,
+            min_opacity=0.3
+        ).add_to(m)
 
-        kmeans=KMeans(n_clusters=3)
-        data["Cluster"]=kmeans.fit_predict(coords)
+        coords = data[["Latitude","Longitude"]].dropna()
 
-        colors=["red","orange","green"]
+        if len(coords) >= 3:
+            kmeans = KMeans(n_clusters=3, random_state=0)
+            data["Cluster"] = kmeans.fit_predict(coords)
 
-        for i in range(len(data)):
-            folium.CircleMarker(
-                location=[data.iloc[i]["Latitude"],data.iloc[i]["Longitude"]],
-                radius=8,
-                color=colors[data.iloc[i]["Cluster"]],
-                fill=True
-            ).add_to(m)
+            colors=["red","orange","green"]
 
-        st_folium(m,width=1000,height=500)
+            for i in range(len(coords)):
+                folium.CircleMarker(
+                    location=[coords.iloc[i]["Latitude"], coords.iloc[i]["Longitude"]],
+                    radius=6,
+                    color=colors[data.iloc[i]["Cluster"]],
+                    fill=True
+                ).add_to(m)
+
+        map_data = st_folium(
+            m,
+            width=1000,
+            height=500,
+            returned_objects=["center","zoom"]
+        )
+
+        if map_data:
+            st.session_state.map_state["zoom"]=map_data["zoom"]
+            st.session_state.map_state["center"]=map_data["center"]
 
 # ---------- STATISTICS ----------
-
     if selected=="Statistics":
 
         st.title("Crime Analysis")
@@ -161,12 +202,9 @@ else:
         st.line_chart(trend)
 
 # ---------- AI PREDICTION ----------
-
     if selected=="AI Prediction":
 
         st.title("AI Crime Risk Prediction")
-
-        st.subheader("Processing Data...")
 
         with st.spinner("Running AI Model..."):
             time.sleep(2)
@@ -190,7 +228,6 @@ else:
         st.metric("Predicted Risk Tomorrow",f"{np.random.randint(70,90)}%")
 
 # ---------- REPORT CRIME ----------
-
     if selected=="Report Crime":
 
         st.title("Report Crime")
