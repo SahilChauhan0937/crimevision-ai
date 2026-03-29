@@ -125,6 +125,7 @@ else:
         st.plotly_chart(fig)
 
         data["Date"]=pd.to_datetime(data["Date"])
+        data["Date"] = pd.to_datetime(data["Date"], errors='coerce')
         trend=data.groupby(data["Date"].dt.month).size()
 
         st.line_chart(trend)
