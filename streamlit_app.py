@@ -11,21 +11,37 @@ import time
 
 st.set_page_config(page_title="Crime Predict AI", layout="wide")
 
-# ---------- CACHE DATA ----------
+# ---------- LOAD & CLEAN DATA ----------
 @st.cache_data
 def load_data():
-    return pd.read_csv("crime_data.csv")
+    data = pd.read_csv("crime_data.csv")
+
+    # ✅ Convert to numeric (FIX ERROR)
+    data["Latitude"] = pd.to_numeric(data["Latitude"], errors="coerce")
+    data["Longitude"] = pd.to_numeric(data["Longitude"], errors="coerce")
+
+    # ✅ Drop invalid rows
+    data = data.dropna(subset=["Latitude", "Longitude"])
+
+    return data
 
 data = load_data()
 
-# ---------- SESSION STATE FOR MAP ----------
+# ---------- SAFE MAP CENTER ----------
+if not data.empty:
+    center_lat = data["Latitude"].mean()
+    center_lon = data["Longitude"].mean()
+else:
+    center_lat, center_lon = 20.5937, 78.9629  # fallback (India)
+
+# ---------- SESSION STATE ----------
 if "map_state" not in st.session_state:
     st.session_state.map_state = {
         "zoom": 12,
-        "center": [data["Latitude"].mean(), data["Longitude"].mean()]
+        "center": [center_lat, center_lon]
     }
 
-# ---------- PROFESSIONAL UI ----------
+# ---------- UI ----------
 st.markdown("""
 <style>
 .stApp {
@@ -49,18 +65,18 @@ color:#38bdf8;
 
 # ---------- LOGIN ----------
 if "login" not in st.session_state:
-    st.session_state.login=False
+    st.session_state.login = False
 
 if not st.session_state.login:
 
     st.title("🔐 Crime Predict AI Login")
 
-    username=st.text_input("Username")
-    password=st.text_input("Password",type="password")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if username=="admin" and password=="admin123":
-            st.session_state.login=True
+        if username == "admin" and password == "admin123":
+            st.session_state.login = True
             st.success("Login Successful")
         else:
             st.error("Invalid Login")
@@ -69,34 +85,34 @@ else:
 
     # ---------- SIDEBAR ----------
     with st.sidebar:
-        selected=option_menu(
+        selected = option_menu(
             "Crime Predict AI",
             ["Dashboard","Command Center","Map","Statistics","AI Prediction","Report Crime"],
             icons=["speedometer","activity","map","bar-chart","cpu","plus-circle"],
             default_index=0
         )
 
-# ---------- DASHBOARD ----------
-    if selected=="Dashboard":
+    # ---------- DASHBOARD ----------
+    if selected == "Dashboard":
 
         st.markdown("# 🚔 SMART CITY CRIME COMMAND CENTER")
 
-        col1,col2,col3,col4=st.columns(4)
+        col1,col2,col3,col4 = st.columns(4)
 
-        col1.metric("Total Crimes",len(data))
-        col2.metric("Areas",data["Area"].nunique())
-        col3.metric("Crime Types",data["Crime_Type"].nunique())
-        col4.metric("Most Common",data["Crime_Type"].mode()[0])
+        col1.metric("Total Crimes", len(data))
+        col2.metric("Areas", data["Area"].nunique())
+        col3.metric("Crime Types", data["Crime_Type"].nunique())
+        col4.metric("Most Common", data["Crime_Type"].mode()[0] if not data.empty else "N/A")
 
         st.subheader("Crime Distribution")
 
-        fig=px.histogram(data,x="Crime_Type",color="Crime_Type")
-        st.plotly_chart(fig,use_container_width=True)
+        fig = px.histogram(data, x="Crime_Type", color="Crime_Type")
+        st.plotly_chart(fig, use_container_width=True)
 
-# ---------- COMMAND CENTER ----------
-    if selected=="Command Center":
+    # ---------- COMMAND CENTER ----------
+    if selected == "Command Center":
 
-        left,center,right=st.columns([1,2,1])
+        left,center,right = st.columns([1,2,1])
 
         with left:
             st.subheader("📊 Stats")
@@ -107,18 +123,18 @@ else:
 
             m = folium.Map(
                 location=st.session_state.map_state["center"],
-                zoom_start=st.session_state.map_state["zoom"],
-                control_scale=True
+                zoom_start=st.session_state.map_state["zoom"]
             )
 
-            heat_data = data[["Latitude","Longitude"]].dropna().values.tolist()
+            heat_data = data[["Latitude","Longitude"]].dropna()
 
-            HeatMap(
-                heat_data,
-                radius=15,
-                blur=20,
-                min_opacity=0.3
-            ).add_to(m)
+            if not heat_data.empty:
+                HeatMap(
+                    heat_data.values.tolist(),
+                    radius=15,
+                    blur=20,
+                    min_opacity=0.3
+                ).add_to(m)
 
             map_data = st_folium(
                 m,
@@ -128,20 +144,20 @@ else:
             )
 
             if map_data:
-                st.session_state.map_state["zoom"]=map_data["zoom"]
-                st.session_state.map_state["center"]=map_data["center"]
+                st.session_state.map_state["zoom"] = map_data["zoom"]
+                st.session_state.map_state["center"] = map_data["center"]
 
         with right:
             st.subheader("🚨 Alerts")
 
-            counts=data["Area"].value_counts()
+            counts = data["Area"].value_counts()
 
             for area,count in counts.items():
-                if count>3:
+                if count > 3:
                     st.error(f"High Risk: {area}")
 
-# ---------- MAP ----------
-    if selected=="Map":
+    # ---------- MAP ----------
+    if selected == "Map":
 
         st.title("Crime Heatmap")
 
@@ -150,28 +166,30 @@ else:
             zoom_start=st.session_state.map_state["zoom"]
         )
 
-        heat_data = data[["Latitude","Longitude"]].dropna().values.tolist()
+        heat_data = data[["Latitude","Longitude"]].dropna()
 
-        HeatMap(
-            heat_data,
-            radius=15,
-            blur=20,
-            min_opacity=0.3
-        ).add_to(m)
+        if not heat_data.empty:
+            HeatMap(
+                heat_data.values.tolist(),
+                radius=15,
+                blur=20,
+                min_opacity=0.3
+            ).add_to(m)
 
-        coords = data[["Latitude","Longitude"]].dropna()
+        # ✅ FIXED KMEANS
+        coords = data[["Latitude","Longitude"]].dropna().copy()
 
         if len(coords) >= 3:
             kmeans = KMeans(n_clusters=3, random_state=0)
-            data["Cluster"] = kmeans.fit_predict(coords)
+            coords["Cluster"] = kmeans.fit_predict(coords)
 
-            colors=["red","orange","green"]
+            colors = ["red","orange","green"]
 
             for i in range(len(coords)):
                 folium.CircleMarker(
                     location=[coords.iloc[i]["Latitude"], coords.iloc[i]["Longitude"]],
                     radius=6,
-                    color=colors[data.iloc[i]["Cluster"]],
+                    color=colors[int(coords.iloc[i]["Cluster"])],
                     fill=True
                 ).add_to(m)
 
@@ -183,64 +201,62 @@ else:
         )
 
         if map_data:
-            st.session_state.map_state["zoom"]=map_data["zoom"]
-            st.session_state.map_state["center"]=map_data["center"]
+            st.session_state.map_state["zoom"] = map_data["zoom"]
+            st.session_state.map_state["center"] = map_data["center"]
 
-# ---------- STATISTICS ----------
-    if selected=="Statistics":
+    # ---------- STATISTICS ----------
+    if selected == "Statistics":
 
         st.title("Crime Analysis")
 
-        area_counts=data["Area"].value_counts()
+        area_counts = data["Area"].value_counts()
 
-        fig=px.bar(x=area_counts.index,y=area_counts.values)
+        fig = px.bar(x=area_counts.index, y=area_counts.values)
         st.plotly_chart(fig)
 
-        data["Date"]=pd.to_datetime(data["Date"])
-        trend=data.groupby(data["Date"].dt.month).size()
+        if "Date" in data.columns:
+            data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+            trend = data.groupby(data["Date"].dt.month).size()
+            st.line_chart(trend)
 
-        st.line_chart(trend)
-
-# ---------- AI PREDICTION ----------
-    if selected=="AI Prediction":
+    # ---------- AI ----------
+    if selected == "AI Prediction":
 
         st.title("AI Crime Risk Prediction")
 
         with st.spinner("Running AI Model..."):
             time.sleep(2)
 
-        area_counts=data["Area"].value_counts()
-        total=len(data)
+        area_counts = data["Area"].value_counts()
+        total = len(data)
 
         for area,count in area_counts.items():
+            risk = (count / total) * 100
 
-            risk=(count/total)*100
-
-            if risk>40:
-                level="🔴 High"
-            elif risk>20:
-                level="🟠 Medium"
+            if risk > 40:
+                level = "🔴 High"
+            elif risk > 20:
+                level = "🟠 Medium"
             else:
-                level="🟢 Low"
+                level = "🟢 Low"
 
             st.write(f"{area} → {round(risk,2)}% Risk ({level})")
 
-        st.metric("Predicted Risk Tomorrow",f"{np.random.randint(70,90)}%")
+        st.metric("Predicted Risk Tomorrow", f"{np.random.randint(70,90)}%")
 
-# ---------- REPORT CRIME ----------
-    if selected=="Report Crime":
+    # ---------- REPORT ----------
+    if selected == "Report Crime":
 
         st.title("Report Crime")
 
-        crime=st.selectbox("Crime Type",["Theft","Robbery","Assault"])
-
-        lat=st.number_input("Latitude")
-        lon=st.number_input("Longitude")
-        area=st.text_input("Area")
+        crime = st.selectbox("Crime Type", ["Theft","Robbery","Assault"])
+        lat = st.number_input("Latitude")
+        lon = st.number_input("Longitude")
+        area = st.text_input("Area")
 
         if st.button("Submit"):
 
-            new=pd.DataFrame({
+            new = pd.DataFrame({
                 "Date":[pd.Timestamp.today()],
                 "Crime_Type":[crime],
                 "Latitude":[lat],
@@ -248,7 +264,7 @@ else:
                 "Area":[area]
             })
 
-            data=pd.concat([data,new])
-            data.to_csv("crime_data.csv",index=False)
+            data = pd.concat([data,new], ignore_index=True)
+            data.to_csv("crime_data.csv", index=False)
 
             st.success("Crime Added Successfully")
